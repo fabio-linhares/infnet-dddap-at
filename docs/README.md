@@ -30,16 +30,10 @@ O projeto consiste no desenvolvimento de uma aplicação orientada a dados, util
 ├── main.py
 ├── requirements.txt
 ├── src
-│   ├── __pycache__
-│   │   ├── api.cpython-311.pyc
-│   │   └── database.cpython-311.pyc
 │   ├── api.py
 │   ├── database.py
 │   └── utils
 │       ├── __init__.py
-│       ├── __pycache__
-│       │   ├── __init__.cpython-311.pyc
-│       │   └── utils.cpython-311.pyc
 │       ├── database_test_connection.py
 │       └── utils.py
 └── tests
@@ -78,6 +72,18 @@ pip install -r requirements.txt
 - **Numpy**: Operações matemáticas e array.
 - **Streamlit**: Criação de aplicativos web interativos para dados.
 - **StatsBombPy**: Coleta de dados esportivos.
+
+## Configuração do Arquivo `.env`
+
+Para garantir o funcionamento correto da aplicação, é necessário criar um arquivo `.env` na raiz do projeto contendo as seguintes chaves de configuração:
+
+- `MONGODB_USER`: Nome de usuário para acessar o banco de dados MongoDB.
+- `MONGODB_PASSWORD`: Senha correspondente ao usuário.
+- `MONGODB_HOST`: Endereço do host onde o MongoDB está hospedado.
+- `MONGODB_PORT`: Porta utilizada pelo MongoDB.
+- `MONGODB_DATABASE`: Nome do banco de dados de administração.
+- `MONGODB_MAIN_DB`: Nome do banco de dados principal utilizado na aplicação.
+- `MONGODB_USER_COLLECTION`: Nome da coleção utilizada para armazenar os dados de partidas do StatsBomb.
 
 ## Como Executar
 
