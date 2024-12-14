@@ -1,14 +1,12 @@
 import json
 import numpy as np
 import datetime
-
 from bson import json_util
 from statsbombpy import sb
-from src.database import collection
+from src.database import collection, get_sqlite_connection
 from pymongo import ReturnDocument
+import sqlite3
 
-import numpy as np
-import datetime
 
 def convert_numpy_types(obj):
     if isinstance(obj, np.integer):
@@ -61,46 +59,110 @@ def get_match_data(match_id):
         return {}
 
 def save_match_data(match_id, data):
-    try:
-        print("Verificando a existência de dados...")
-        match_id_int = int(match_id)
-        existing_data = collection.find_one({"match_id": match_id_int}, projection={"_id": 1, "match_id": 1})
-        
-        if existing_data:
-            print("Dados já existem. Atualizando...")
-            result = collection.update_one(
-                {"match_id": match_id_int},
-                {"$set": {"data": convert_numpy_types(data)}}
-            )
-            if result.modified_count > 0:
-                print("Dados atualizados com sucesso.")
-                return str(existing_data['_id']), match_id_int
+    if collection:
+        try:
+            print("Verificando a existência de dados...")
+            match_id_int = int(match_id)
+            existing_data = collection.find_one({"match_id": match_id_int}, projection={"_id": 1, "match_id": 1})
+            
+            if existing_data:
+                print("Dados já existem. Atualizando...")
+                result = collection.update_one(
+                    {"match_id": match_id_int},
+                    {"$set": {"data": convert_numpy_types(data)}}
+                )
+                if result.modified_count > 0:
+                    print("Dados atualizados com sucesso.")
+                    return str(existing_data['_id']), int(existing_data['match_id'])
+                else:
+                    print("Nenhuma alteração foi necessária.")
+                    return str(existing_data['_id']), int(existing_data['match_id'])
             else:
-                print("Nenhuma alteração foi necessária.")
-                return str(existing_data['_id']), match_id_int
-        else:
-            print("Dados não existem. Inserindo novos dados...")
-            converted_data = convert_numpy_types(data)
-            result = collection.insert_one({"match_id": match_id_int, "data": converted_data})
-            print("Inserção no MongoDB concluída.")
-            return str(result.inserted_id), match_id_int
-    except Exception as e:
-        print(f"Erro detalhado ao salvar dados da partida: {e}")
-        import traceback
-        traceback.print_exc()
-        return None, None
-    
+                print("Dados não existem. Inserindo novos dados...")
+                converted_data = convert_numpy_types(data)
+                result = collection.insert_one({"match_id": match_id_int, "data": converted_data})
+                print("Inserção no MongoDB concluída.")
+                return str(result.inserted_id), match_id_int
+        except Exception as e:
+            print(f"Erro ao salvar no MongoDB: {e}. Tentando SQLite...")
+            return save_match_data_sqlite(match_id, data)
+    else:
+        return save_match_data_sqlite(match_id, data)
+
+
+
 
 def get_saved_match_data(match_id):
+    if collection:
+        try:
+            match_id_int = int(match_id)
+            result = collection.find_one({"match_id": match_id_int})
+            if result:
+                return {
+                    "_id": str(result["_id"]),
+                    "match_id": int(result["match_id"])
+                }
+            return None
+        except Exception as e:
+            print(f"Erro ao recuperar do MongoDB: {e}. Tentando SQLite...")
+            return get_saved_match_data_sqlite(match_id)
+    else:
+        return get_saved_match_data_sqlite(match_id)
+
+
+
+def create_connection(db_file=":memory:"):
     try:
+        conn = sqlite3.connect(db_file)
+        return conn
+    except sqlite3.Error as e:
+        print(f"Erro ao conectar ao SQLite: {e}")
+    return None
+
+def save_match_data_sqlite(match_id, data):
+    conn = create_connection()
+    if conn is not None:
+        try:
+            cursor = conn.cursor()
+            cursor.execute("INSERT OR REPLACE INTO matches (match_id, data) VALUES (?, ?)",
+                           (match_id, json.dumps(data)))
+            conn.commit()
+            return cursor.lastrowid, match_id
+        except sqlite3.Error as e:
+            print(f"Erro ao salvar dados no SQLite: {e}")
+        finally:
+            conn.close()
+    return None, None
+
+
+def save_match_data_sqlite(match_id, data):
+    conn = get_sqlite_connection()
+    try:
+        cursor = conn.cursor()
         match_id_int = int(match_id)
-        result = collection.find_one({"match_id": match_id_int})
+        cursor.execute("INSERT OR REPLACE INTO matches (match_id, data) VALUES (?, ?)",
+                       (match_id_int, json.dumps(data)))
+        conn.commit()
+        return cursor.lastrowid, match_id_int
+    except Exception as e:
+        print(f"Erro ao salvar dados no SQLite: {e}")
+        return None, None
+    finally:
+        conn.close()
+
+
+
+def get_saved_match_data_sqlite(match_id):
+    conn = get_sqlite_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SELECT id, match_id FROM matches WHERE match_id = ?", (int(match_id),))
+        result = cursor.fetchone()
         if result:
-            return {
-                "_id": str(result["_id"]),
-                "match_id": result["match_id"]
-            }
+            return {"_id": result[0], "match_id": int(result[1])}
         return None
     except Exception as e:
-        print(f"Erro ao recuperar dados da partida: {e}")
+        print(f"Erro ao recuperar dados do SQLite: {e}")
         return None
+    finally:
+        conn.close()
