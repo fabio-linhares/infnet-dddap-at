@@ -16,13 +16,12 @@ from src.utils.utils import save_match_data, get_saved_match_data
 from src.database import collection
 from src.utils.utils import get_match_summary, get_player_profile
 from src.utils.narrative_generator import generate_match_narrative
-
+from src.utils.football_agent import run_football_agent
 warnings.filterwarnings("ignore", category=UserWarning)
 
 
-# Nova navegação por abas
 st.sidebar.title("Navegação")
-page = st.sidebar.radio("Ir para", ["Análise de Partidas", "Gerador de Narrativas", "Análise Avançada"])
+page = st.sidebar.radio("Ir para", ["Análise de Partidas", "Gerador de Narrativas", "Análise Avançada", "Agente de Futebol"])
 
 if page == "Análise de Partidas":
     st.title("Análise de Partidas de Futebol")
@@ -303,3 +302,40 @@ elif page == "Análise Avançada":
 
     else:
         st.info("Clique em 'Analisar Partida' para carregar os dados e ver as análises avançadas.")
+
+elif page == "Agente de Futebol":
+    st.title("Agente de Análise de Futebol")
+
+    # Seleção de partida (reutilizando o código existente)
+    competitions = get_competitions()
+    competition_names = competitions['competition_name'].unique()
+    selected_competition = st.selectbox("Selecione a competição:", competition_names, key="agent_competition")
+
+    seasons = competitions[competitions['competition_name'] == selected_competition]['season_name'].unique()
+    selected_season = st.selectbox("Selecione a temporada:", seasons, key="agent_season")
+
+    competition_id = competitions[(competitions['competition_name'] == selected_competition) & 
+                                  (competitions['season_name'] == selected_season)]['competition_id'].iloc[0]
+    season_id = competitions[(competitions['competition_name'] == selected_competition) & 
+                             (competitions['season_name'] == selected_season)]['season_id'].iloc[0]
+
+    matches = get_matches(competition_id, season_id)
+    match_names = [f"{row['home_team']} vs {row['away_team']} ({row['match_date']})" for _, row in matches.iterrows()]
+    selected_match = st.selectbox("Selecione a partida:", match_names, key="agent_match")
+
+    # Input para a pergunta do usuário
+    user_query = st.text_input("Faça uma pergunta sobre a partida:")
+
+    if st.button("Analisar"):
+        selected_match_id = matches.iloc[match_names.index(selected_match)]['match_id']
+        
+        with st.spinner("O agente está analisando a partida..."):
+            response = run_football_agent(selected_match_id, user_query)
+        
+        st.subheader("Resposta do Agente")
+        st.write(response)
+
+    st.info("Exemplos de perguntas que você pode fazer:\n"
+            "- Quem deu mais passes na partida?\n"
+            "- Qual jogador teve mais finalizações no primeiro tempo?\n"
+            "- Compare os jogadores X e Y em termos de passes e chutes.")
