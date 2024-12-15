@@ -42,21 +42,15 @@ A aplicação está organizada nos seguintes diretórios principais:
 ├── docs
 │   └── README.md
 ├── environment.yml
-├── main.py
+├── main_fastapi.py
+├── main_llm.py
 ├── requirements.txt
 ├── src
-│   ├── __pycache__
-│   │   ├── api.cpython-311.pyc
-│   │   └── database.cpython-311.pyc
 │   ├── api.py
+│   ├── api_fastapi.py
 │   ├── database.py
 │   └── utils
 │       ├── __init__.py
-│       ├── __pycache__
-│       │   ├── __init__.cpython-311.pyc
-│       │   ├── llm_utils.cpython-311.pyc
-│       │   ├── utils.cpython-311.pyc
-│       │   └── utils.cpython-311.pyc.140264758100448
 │       ├── database_test_connection.py
 │       ├── llm_utils.py
 │       ├── sqlite_utils.py
