@@ -9,6 +9,8 @@ from src.database import collection, get_sqlite_connection
 from pymongo import ReturnDocument
 import sqlite3
 from src.utils.llm_utils import generate_llm_response
+from src.database import get_db_connection, is_mongodb_available
+
 
 def convert_numpy_types(obj):
     if isinstance(obj, np.integer):
@@ -41,7 +43,6 @@ def convert_numpy_types(obj):
         return convert_numpy_types(obj.to_dict())
     else:
         return str(obj)
-
 
 def get_competitions():
     return sb.competitions()
@@ -169,8 +170,14 @@ def get_saved_match_data_sqlite(match_id):
         return None
     finally:
         conn.close()
+####################
+
 
 def get_match_summary(match_id):
+    saved_resumo = get_saved_resumo(convert_numpy_types(match_id))
+    if saved_resumo:
+        return saved_resumo
+
     match_data = get_match_data(match_id)
     if match_data:
         # Identificar times
@@ -233,10 +240,11 @@ def get_match_summary(match_id):
             f"Lineups:\n{home_team}: {', '.join(home_lineup)}\n{away_team}: {', '.join(away_lineup)}\n"
         )
 
+        # Prompt para gerar o resumo completo
         prompt = f"""
         Summarize the following football match in Portuguese (Brazilian):
         
-        Sumary: {summary}
+        Summary: {summary}
 
         Escreva um resumo detalhado da partida no formato de texto narrativo, destacando os seguintes pontos:
         1. Desfecho da partida (quem venceu ou se foi empate).
@@ -251,21 +259,28 @@ def get_match_summary(match_id):
         Por favor, escreva no estilo narrativo fluido, por exemplo: "O time A venceu o time B por 3 a 1. Os destaques foram os gols de João e Lucas, além de uma assistência de Ana. O time A teve 60% de posse de bola, contra 40% do time B..."
         """
 
+        # Gerar o resumo final com o LLM
         summary_text = generate_llm_response(prompt)
+
+        # return summary_text
+        save_resumo(convert_numpy_types(match_id), convert_numpy_types(summary_text))
         return summary_text
 
     return None
 
-
 def get_player_profile(match_id, player_id):
-    match_data = get_match_data(match_id) 
+    saved_perfil = get_saved_perfil(convert_numpy_types(match_id), convert_numpy_types(player_id))
+    if saved_perfil:
+        return saved_perfil
+    # Obter dados da partida e as escalações
+    match_data = get_match_data(match_id)
     lineups = sb.lineups(match_id=match_id)
 
     if match_data and lineups:
         player_info = None
         player_team = None
 
-        # procurar informações do jogador nas escalações
+        # Procurar informações do jogador nas escalações
         for team, lineup in lineups.items():
             player = lineup[lineup['player_id'] == int(player_id)]
             if not player.empty:
@@ -335,11 +350,9 @@ def get_player_profile(match_id, player_id):
             profile += f"Assistências: {assists}\n"
             profile += f"Desarmes: {tackles}\n"
 
-    
-            #print(profile)
-            
+            # Preparar o prompt para gerar uma descrição mais narrativa do perfil
             prompt = f"""
-            Create a detailed profile of the following football player in Portuguese (Brazilian):
+            Crie um perfil detalhado do seguinte jogador de futebol em português (Brasil):
 
             Perfil: {profile}
 
@@ -352,11 +365,14 @@ def get_player_profile(match_id, player_id):
             Por favor, escreva no estilo narrativo fluido, por exemplo: "João Silva, jogador do Time A, destacou-se na posição de atacante durante a partida. 
             Com 1,85 m de altura e 80 kg, ele demonstrou agilidade e precisão ao marcar dois gols e realizar uma assistência decisiva.
             Seus 30 passes, sendo 25 bem-sucedidos, evidenciaram sua habilidade em manter a posse de bola e criar jogadas importantes..."
-            
+
             Foque nas informações que dispõe e deixe de lado as que não tem.
             """
 
+            # Gerar o perfil detalhado através de uma LLM (como GPT)
             profile_text = generate_llm_response(prompt)
+
+            save_perfil(convert_numpy_types(match_id), convert_numpy_types(player_id), convert_numpy_types(profile_text))
             return profile_text
 
         else:
@@ -367,28 +383,106 @@ def get_player_profile(match_id, player_id):
     return "Não foi possível carregar os dados da partida ou das escalações."
 
 
-
-
-
-
-
-
-
-
-#         else:
-#             return f"Nenhum evento encontrado para o jogador {player_name}."
-#     return "Não foi possível carregar os dados da partida ou das escalações."
-
-
-
-
-
-
-
-
 def extract_player_data(match_data, player_id):
     #mais adiante...
     pass
 
 
 
+
+
+def save_resumo(match_id, resumo):
+    db = get_db_connection()
+    if db['type'] == 'mongodb':
+        try:
+            result = db['resumos'].update_one(
+                {"match_id": convert_numpy_types(match_id)},
+                {"$set": {"resumo": convert_numpy_types(resumo)}},
+                upsert=True
+            )
+            return result.upserted_id or result.modified_count > 0
+        except Exception as e:
+            print(f"Erro ao salvar resumo no MongoDB: {e}")
+    else:
+        conn = db['connection']()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("INSERT OR REPLACE INTO resumos (match_id, resumo) VALUES (?, ?)",
+                           (match_id, resumo))
+            conn.commit()
+            return cursor.lastrowid
+        except Exception as e:
+            print(f"Erro ao salvar resumo no SQLite: {e}")
+        finally:
+            conn.close()
+
+def get_saved_resumo(match_id):
+    db = get_db_connection()
+    if db['type'] == 'mongodb':
+        result = db['resumos'].find_one({"match_id": convert_numpy_types(match_id)})
+        if result:
+            return convert_numpy_types(result.get("resumo"))
+    else:
+        conn = db['connection']()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("SELECT resumo FROM resumos WHERE match_id = ?", (match_id,))
+            result = cursor.fetchone()
+            if result:
+                return result[0]
+        except Exception as e:
+            print(f"Erro ao recuperar resumo do SQLite: {e}")
+        finally:
+            conn.close()
+    
+    return None
+
+
+def save_perfil(match_id, player_id, perfil):
+    db = get_db_connection()
+    if db['type'] == 'mongodb':
+        try:
+            result = db['perfis'].update_one(
+                {"match_id": convert_numpy_types(match_id), "player_id": convert_numpy_types(player_id)},
+                {"$set": {"perfil": convert_numpy_types(perfil)}},
+                upsert=True
+            )
+            return result.upserted_id or result.modified_count > 0
+        except Exception as e:
+            print(f"Erro ao salvar perfil no MongoDB: {e}")
+    else:
+        conn = db['connection']()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("INSERT OR REPLACE INTO perfis (match_id, player_id, perfil) VALUES (?, ?, ?)",
+                           (match_id, player_id, perfil))
+            conn.commit()
+            return cursor.lastrowid
+        except Exception as e:
+            print(f"Erro ao salvar perfil no SQLite: {e}")
+        finally:
+            conn.close()
+
+def get_saved_perfil(match_id, player_id):
+    db = get_db_connection()
+    if db['type'] == 'mongodb':
+        result = db['perfis'].find_one({
+            "match_id": convert_numpy_types(match_id),
+            "player_id": convert_numpy_types(player_id)
+        })
+        if result:
+            return convert_numpy_types(result.get("perfil"))
+    else:
+        conn = db['connection']()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("SELECT perfil FROM perfis WHERE match_id = ? AND player_id = ?", (match_id, player_id))
+            result = cursor.fetchone()
+            if result:
+                return result[0]
+        except Exception as e:
+            print(f"Erro ao recuperar perfil do SQLite: {e}")
+        finally:
+            conn.close()
+    
+    return None
