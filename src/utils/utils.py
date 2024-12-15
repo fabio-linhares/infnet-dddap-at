@@ -1,12 +1,14 @@
 import json
+import ast
 import numpy as np
+import pandas as pd
 import datetime
 from bson import json_util
 from statsbombpy import sb
 from src.database import collection, get_sqlite_connection
 from pymongo import ReturnDocument
 import sqlite3
-
+from src.utils.llm_utils import generate_llm_response
 
 def convert_numpy_types(obj):
     if isinstance(obj, np.integer):
@@ -58,8 +60,9 @@ def get_match_data(match_id):
         print(f"Erro ao obter dados da partida: {e}")
         return {}
 
+
 def save_match_data(match_id, data):
-    if collection:
+    if collection is not None:
         try:
             print("Verificando a existência de dados...")
             match_id_int = int(match_id)
@@ -93,7 +96,7 @@ def save_match_data(match_id, data):
 
 
 def get_saved_match_data(match_id):
-    if collection:
+    if collection is not None: 
         try:
             match_id_int = int(match_id)
             result = collection.find_one({"match_id": match_id_int})
@@ -166,3 +169,226 @@ def get_saved_match_data_sqlite(match_id):
         return None
     finally:
         conn.close()
+
+def get_match_summary(match_id):
+    match_data = get_match_data(match_id)
+    if match_data:
+        # Identificar times
+        home_team = match_data[0]['team']
+        away_team = match_data[1]['team']
+
+        # Inicializar contadores e listas
+        home_goals = []
+        away_goals = []
+        home_fouls = 0
+        away_fouls = 0
+        home_corners = 0
+        away_corners = 0
+        home_saves = 0
+        away_saves = 0
+        home_lineup = []
+        away_lineup = []
+
+        # Coletar detalhes dos eventos
+        for event in match_data:
+            if event['type'] == 'Shot' and event['shot_outcome'] == 'Goal':
+                if event['team'] == home_team:
+                    home_goals.append(event['player'])
+                else:
+                    away_goals.append(event['player'])
+
+            if event['type'] == 'Foul Committed':
+                if event['team'] == home_team:
+                    home_fouls += 1
+                else:
+                    away_fouls += 1
+
+            if event['type'] == 'Corner Taken':
+                if event['team'] == home_team:
+                    home_corners += 1
+                else:
+                    away_corners += 1
+
+            if event['type'] == 'Save':
+                if event['team'] == home_team:
+                    home_saves += 1
+                else:
+                    away_saves += 1
+
+            if event['type'] == 'Starting XI':
+                if event['team'] == home_team:
+                    home_lineup = [player['player']['name'] for player in event['tactics']['lineup']]
+                else:
+                    away_lineup = [player['player']['name'] for player in event['tactics']['lineup']]
+
+        # Criar o resumo
+        summary = (
+            f"Match between {home_team} and {away_team}.\n"
+            f"Final score: {home_team} {len(home_goals)} x {len(away_goals)} {away_team}.\n"
+            f"Goals by {home_team}: {', '.join(home_goals)}.\n"
+            f"Goals by {away_team}: {', '.join(away_goals)}.\n"
+            f"Fouls committed: {home_team} {home_fouls}, {away_team} {away_fouls}.\n"
+            f"Corners: {home_team} {home_corners}, {away_team} {away_corners}.\n"
+            f"Saves: {home_team} {home_saves}, {away_team} {away_saves}.\n"
+            f"Lineups:\n{home_team}: {', '.join(home_lineup)}\n{away_team}: {', '.join(away_lineup)}\n"
+        )
+
+        prompt = f"""
+        Summarize the following football match in Portuguese (Brazilian):
+        
+        Sumary: {summary}
+
+        Escreva um resumo detalhado da partida no formato de texto narrativo, destacando os seguintes pontos:
+        1. Desfecho da partida (quem venceu ou se foi empate).
+        2. Principais eventos, como gols, assistências, e jogadores que se destacaram.
+        3. Informações estatísticas, incluindo:
+        - Percentuais de posse de bola
+        - Total de chutes e chutes no alvo
+        - Defesas notáveis dos goleiros
+        - Faltas cometidas por cada equipe
+        4. Decisões táticas, substituições ou mudanças de formação, se relevantes.
+
+        Por favor, escreva no estilo narrativo fluido, por exemplo: "O time A venceu o time B por 3 a 1. Os destaques foram os gols de João e Lucas, além de uma assistência de Ana. O time A teve 60% de posse de bola, contra 40% do time B..."
+        """
+
+        summary_text = generate_llm_response(prompt)
+        return summary_text
+
+    return None
+
+
+def get_player_profile(match_id, player_id):
+    match_data = get_match_data(match_id) 
+    lineups = sb.lineups(match_id=match_id)
+
+    if match_data and lineups:
+        player_info = None
+        player_team = None
+
+        # procurar informações do jogador nas escalações
+        for team, lineup in lineups.items():
+            player = lineup[lineup['player_id'] == int(player_id)]
+            if not player.empty:
+                player_info = player.iloc[0]
+                player_team = team
+                break
+
+        if player_info is None:
+            return "Jogador não encontrado nas escalações."
+
+        def safe_get(value):
+            return str(value) if pd.notna(value) else "N/A"
+
+        player_name = safe_get(player_info.get("player_name"))
+        player_nickname = safe_get(player_info.get("player_nickname"))
+        jersey_number = safe_get(player_info.get("jersey_number"))
+        birth_date = safe_get(player_info.get("birth_date"))
+        country = safe_get(player_info.get("country"))
+        gender = safe_get(player_info.get("player_gender"))
+        height = safe_get(player_info.get("player_height"))
+        weight = safe_get(player_info.get("player_weight"))
+
+        # Criar o perfil inicial do jogador
+        profile = f"Perfil de {player_name} ({player_team}):\n"
+        profile += f"Apelido: {player_nickname}\n"
+        profile += f"Número da camisa: {jersey_number}\n"
+        profile += f"Data de Nascimento: {birth_date}\n"
+        profile += f"País: {country}\n"
+        profile += f"Gênero: {gender}\n"
+        profile += f"Altura: {height} cm\n"
+        profile += f"Peso: {weight} kg\n"
+
+        # Filtrar eventos do jogador nos dados da partida
+        player_events = [event for event in match_data if event.get('player') == player_name]
+
+        if player_events:
+            # Estatísticas básicas
+            passes = sum(1 for event in player_events if event.get("type") == "Pass")
+            successful_passes = sum(
+                1
+                for event in player_events
+                if event.get("type") == "Pass" and not event.get("pass_outcome")
+            )
+            shots = sum(1 for event in player_events if event.get("type") == "Shot")
+            goals = sum(
+                1 for event in player_events if event.get("type") == "Shot" and event.get("shot_outcome") == "Goal"
+            )
+            assists = sum(
+                1 for event in player_events if event.get("type") == "Pass" and event.get("pass_goal_assist")
+            )
+            tackles = sum(
+                1 for event in player_events if event.get("type") == "Duel" and event.get("duel_type") == "Tackle"
+            )
+
+            # Estatísticas adicionais
+            finalizacoes = shots
+            minutos_jogados = max(event.get("minute", 0) for event in player_events)
+            player_position = player_events[0].get("position", "Posição não especificada")
+
+            # Atualizar o perfil com estatísticas
+            profile += f"\nPosição: {player_position}\n"
+            profile += f"\nEstatísticas da partida:\n"
+            profile += f"Minutos jogados: {minutos_jogados}\n"
+            profile += f"Passes: {passes} (Bem-sucedidos: {successful_passes})\n"
+            profile += f"Finalizações: {finalizacoes}\n"
+            profile += f"Gols: {goals}\n"
+            profile += f"Assistências: {assists}\n"
+            profile += f"Desarmes: {tackles}\n"
+
+    
+            #print(profile)
+            
+            prompt = f"""
+            Create a detailed profile of the following football player in Portuguese (Brazilian):
+
+            Perfil: {profile}
+
+            Como se fosse um comentarista da ESPN ou dos grandes canais de esporte do mundo, e te perguntassem sobre esse jogador,
+            escreva o perfil narrativo dele utilizando os dados acima. Inclua os seguintes pontos:
+            1. Se possível, apresente informações pessoais e contextuais (nome, posição, time, número da camisa, data de nascimento, país, gênero, altura e peso).
+            2. Destaques do desempenho na partida, como o número de passes realizados (e bem-sucedidos), chutes, gols, assistências e desarmes.
+            3. Comente brevemente sobre como essas estatísticas refletem o impacto do jogador na partida ou sua importância para o time.
+
+            Por favor, escreva no estilo narrativo fluido, por exemplo: "João Silva, jogador do Time A, destacou-se na posição de atacante durante a partida. 
+            Com 1,85 m de altura e 80 kg, ele demonstrou agilidade e precisão ao marcar dois gols e realizar uma assistência decisiva.
+            Seus 30 passes, sendo 25 bem-sucedidos, evidenciaram sua habilidade em manter a posse de bola e criar jogadas importantes..."
+            
+            Foque nas informações que dispõe e deixe de lado as que não tem.
+            """
+
+            profile_text = generate_llm_response(prompt)
+            return profile_text
+
+        else:
+            profile += "\nNenhum evento encontrado para o jogador nesta partida."
+
+        return profile
+
+    return "Não foi possível carregar os dados da partida ou das escalações."
+
+
+
+
+
+
+
+
+
+
+#         else:
+#             return f"Nenhum evento encontrado para o jogador {player_name}."
+#     return "Não foi possível carregar os dados da partida ou das escalações."
+
+
+
+
+
+
+
+
+def extract_player_data(match_data, player_id):
+    #mais adiante...
+    pass
+
+
+

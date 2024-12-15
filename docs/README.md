@@ -32,23 +32,34 @@ A aplicação está organizada nos seguintes diretórios principais:
 
 ```plaintext
 .
+├── LICENSE
 ├── app
 │   ├── __init__py
 │   └── app.py
-├── chat
 ├── data
-│   └── conhecimentos.csv
+│   ├── conhecimentos.csv
+│   └── football_data.db
 ├── docs
 │   └── README.md
 ├── environment.yml
 ├── main.py
 ├── requirements.txt
 ├── src
+│   ├── __pycache__
+│   │   ├── api.cpython-311.pyc
+│   │   └── database.cpython-311.pyc
 │   ├── api.py
 │   ├── database.py
 │   └── utils
 │       ├── __init__.py
+│       ├── __pycache__
+│       │   ├── __init__.cpython-311.pyc
+│       │   ├── llm_utils.cpython-311.pyc
+│       │   ├── utils.cpython-311.pyc
+│       │   └── utils.cpython-311.pyc.140264758100448
 │       ├── database_test_connection.py
+│       ├── llm_utils.py
+│       ├── sqlite_utils.py
 │       └── utils.py
 └── tests
     ├── __init__.py
