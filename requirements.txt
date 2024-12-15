@@ -39,10 +39,12 @@ pyarrow==18.1.0
 pydantic==2.10.3
 pydantic_core==2.27.1
 pydeck==0.9.1
+pydentic==0.0.1.dev3
 Pygments==2.18.0
 pymongo==4.10.1
 python-dateutil==2.9.0.post0
 python-dotenv==1.0.1
+python-stdnum==1.20
 pytz==2024.2
 referencing==0.35.1
 requests==2.32.3
